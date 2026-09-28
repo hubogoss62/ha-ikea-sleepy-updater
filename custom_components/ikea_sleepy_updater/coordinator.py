@@ -1,8 +1,8 @@
-"""Connection manager and OTA orchestration for the BILRESA updater.
+"""Connection manager and OTA orchestration for the IKEA sleepy device updater.
 
 This module is the only place that talks to ``python-matter-server`` / the
 ``chip`` SDK. The rest of the integration consumes plain Python values through
-the :class:`BilresaManager` API so that a missing Matter dependency only fails
+the :class:`SleepyDeviceManager` API so that a missing Matter dependency only fails
 the connection (not every platform import).
 """
 
@@ -31,6 +31,8 @@ from chip.clusters import Objects as clusters
 from .const import (
     CONF_URL,
     DEFAULT_KEEP_AWAKE_FALLBACK_INTERVAL,
+    DEFAULT_PRODUCT_FILTER,
+    DEFAULT_VENDOR_SCOPE,
     ICD_OPERATING_MODE_NAMES,
     IDLE_OTA_STATES,
     IKEA_VENDOR_ID,
@@ -41,18 +43,18 @@ from .const import (
     MATTER_DOMAIN,
     MIN_BATTERY_PERCENT,
     OTA_UPDATE_STATE_NAMES,
-    PRODUCT_NAME_MATCH,
     STAY_ACTIVE_REQUEST_COMMAND_ID,
+    VENDOR_SCOPE_ANY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class BilresaConnectionError(HomeAssistantError):
+class SleepyConnectionError(HomeAssistantError):
     """Raised when the Matter Server cannot be reached."""
 
 
-class BilresaManager:
+class SleepyDeviceManager:
     """Owns a dedicated Matter Server websocket connection.
 
     The Matter Server explicitly supports multiple simultaneous consumers, so we
@@ -66,18 +68,22 @@ class BilresaManager:
         hass: HomeAssistant,
         url: str,
         fallback_interval: int = DEFAULT_KEEP_AWAKE_FALLBACK_INTERVAL,
+        vendor_scope: str = DEFAULT_VENDOR_SCOPE,
+        product_filter: str = DEFAULT_PRODUCT_FILTER,
     ) -> None:
         """Initialize the manager."""
         self.hass = hass
         self.url = url
         self._fallback_interval = fallback_interval
+        self._any_vendor = vendor_scope == VENDOR_SCOPE_ANY
+        self._product_filters = parse_product_filter(product_filter)
         self.client: MatterClient | None = None
         self._listen_task: asyncio.Task[None] | None = None
         self._unsub_events: list[Callable[[], None]] = []
         self._last_promised: dict[int, int | None] = {}
         self._listeners: dict[int, list[Callable[[], None]]] = {}
-        # Node ids recognised as BILRESA remotes (populated on connect).
-        self._bilresa_ids: set[int] = set()
+        # Node ids recognised as IKEA sleepy devices (populated on connect).
+        self._device_ids: set[int] = set()
         # Active keep-awake loops, keyed by node id.
         self._keepalive_tasks: dict[int, asyncio.Task[None]] = {}
         self._keepalive_stops: dict[int, asyncio.Event] = {}
@@ -92,7 +98,7 @@ class BilresaManager:
         try:
             await self.client.connect()
         except (MatterError, OSError, asyncio.TimeoutError) as err:
-            raise BilresaConnectionError(
+            raise SleepyConnectionError(
                 f"Could not connect to Matter Server at {self.url}: {err}"
             ) from err
 
@@ -106,16 +112,16 @@ class BilresaManager:
                 await init_ready.wait()
         except asyncio.TimeoutError as err:
             await self.async_disconnect()
-            raise BilresaConnectionError(
+            raise SleepyConnectionError(
                 "Timed out waiting for the Matter Server node list"
             ) from err
 
-        self._bilresa_ids = set(self.get_bilresa_node_ids())
+        self._device_ids = set(self.get_device_node_ids())
         # The Matter Server client routes events via subscription filters and
         # passes only the new attribute value to the callback (verified at
         # runtime), so the node id must be bound at subscription time -- one
-        # subscription per BILRESA node.
-        for node_id in self._bilresa_ids:
+        # subscription per tracked node.
+        for node_id in self._device_ids:
             self._unsub_events.append(
                 self.client.subscribe_events(
                     partial(self._handle_node_event, node_id),
@@ -124,7 +130,7 @@ class BilresaManager:
                 )
             )
         # In case an update is already mid-flight when we start up, evaluate now.
-        for node_id in self._bilresa_ids:
+        for node_id in self._device_ids:
             self._evaluate_keepawake(node_id)
 
     async def _listen(self, init_ready: asyncio.Event) -> None:
@@ -175,7 +181,7 @@ class BilresaManager:
     # ------------------------------------------------------------------
     @callback
     def _handle_node_event(self, node_id: int, event: EventType, data: Any) -> None:
-        """React to an attribute change on a specific BILRESA node.
+        """React to an attribute change on a specific tracked node.
 
         The node id is bound via ``partial`` at subscription time because the
         Matter Server client only passes the new attribute value as ``data``.
@@ -208,29 +214,44 @@ class BilresaManager:
     # ------------------------------------------------------------------
     # Node discovery
     # ------------------------------------------------------------------
-    def get_bilresa_node_ids(self) -> list[int]:
-        """Return node ids that look like BILRESA remotes."""
+    def get_device_node_ids(self) -> list[int]:
+        """Return node ids that look like IKEA sleepy devices."""
         if self.client is None:
             return []
         return [
             node.node_id
             for node in self.client.get_nodes()
-            if self._is_bilresa(node)
+            if self._is_sleepy_target(node)
         ]
 
-    def _is_bilresa(self, node: Any) -> bool:
+    def _is_sleepy_target(self, node: Any) -> bool:
+        """Return True for OTA-capable Matter ICDs matching the configured filters.
+
+        A device qualifies when it:
+        - comes from IKEA (unless the vendor scope is "any"),
+        - exposes the OTA Software Update Requestor cluster (it can be updated),
+        - exposes the ICD Management cluster on endpoint 0 (it is a sleepy
+          Intermittently Connected Device, so it can drop off mid-transfer),
+        - and, if a product filter is set, its product name contains one of
+          the configured substrings (e.g. "MYGGBETT, MYGGSPRAY").
+
+        Mains-powered IKEA devices (bulbs, plugs, the Dirigera bridge...) do not
+        implement ICD Management, so they are never picked up.
+        """
         info = node.device_info
         if info is None:
             return False
-        if getattr(info, "vendorID", None) != IKEA_VENDOR_ID:
+        if not self._any_vendor and getattr(info, "vendorID", None) != IKEA_VENDOR_ID:
             return False
         if self._ota_endpoint(node) is None:
             return False
+        endpoint = node.endpoints.get(0)
+        if endpoint is None or not endpoint.has_cluster(clusters.IcdManagement):
+            return False
+        if not self._product_filters:
+            return True
         product = (getattr(info, "productName", "") or "").upper()
-        # Only attach to nodes that positively identify as BILRESA. Accepting
-        # blank/unknown product names could expose firmware actions on unrelated
-        # IKEA Matter devices, so we require an explicit name match.
-        return PRODUCT_NAME_MATCH in product
+        return any(match in product for match in self._product_filters)
 
     @staticmethod
     def _ota_endpoint(node: Any) -> int | None:
@@ -248,7 +269,7 @@ class BilresaManager:
 
     def _get_node(self, node_id: int) -> Any:
         if self.client is None:
-            raise BilresaConnectionError("Matter Server not connected")
+            raise SleepyConnectionError("Matter Server not connected")
         return self.client.get_node(node_id)
 
     # ------------------------------------------------------------------
@@ -287,7 +308,7 @@ class BilresaManager:
         for candidate in (self.get_node_label(node_id), self.get_product_name(node_id)):
             if candidate:
                 return candidate
-        return f"IKEA BILRESA (node {node_id})"
+        return f"Matter device (node {node_id})"
 
     def get_manufacturer(self, node_id: int) -> str | None:
         return _clean_name(
@@ -405,7 +426,7 @@ class BilresaManager:
     def _safe_node(self, node_id: int) -> Any | None:
         try:
             return self._get_node(node_id)
-        except (NodeNotExists, BilresaConnectionError):
+        except (NodeNotExists, SleepyConnectionError):
             return None
 
     def _read_attribute(
@@ -438,7 +459,7 @@ class BilresaManager:
     def _start_keepawake(self, node_id: int, state: str | None) -> None:
         """Begin holding a node in active mode for the duration of an update."""
         _LOGGER.info(
-            "Firmware update detected on BILRESA node %s (state: %s); starting "
+            "Firmware update detected on node %s (state: %s); starting "
             "keep-awake loop",
             node_id,
             state,
@@ -446,7 +467,7 @@ class BilresaManager:
         battery = self.get_battery_percent(node_id)
         if battery is not None and battery < MIN_BATTERY_PERCENT:
             _LOGGER.warning(
-                "BILRESA node %s battery is low (%s%%) during a firmware update; "
+                "Node %s battery is low (%s%%) during a firmware update; "
                 "a flash interrupted by a dying battery can brick the device",
                 node_id,
                 battery,
@@ -463,7 +484,7 @@ class BilresaManager:
     def _stop_keepawake(self, node_id: int) -> None:
         """Signal the keep-awake loop for a node to stop."""
         _LOGGER.info(
-            "Firmware update on BILRESA node %s finished; stopping keep-awake loop",
+            "Firmware update on node %s finished; stopping keep-awake loop",
             node_id,
         )
         stop_event = self._keepalive_stops.get(node_id)
@@ -514,7 +535,7 @@ class BilresaManager:
     async def keep_awake_once(self, node_id: int) -> int | None:
         """Send a single StayActiveRequest. Returns PromisedActiveDuration (ms)."""
         if self.client is None:
-            raise BilresaConnectionError("Matter Server not connected")
+            raise SleepyConnectionError("Matter Server not connected")
         try:
             response = await self.client.send_device_command(
                 node_id=node_id,
@@ -542,7 +563,7 @@ class BilresaManager:
             instruction = self.get_user_active_mode_instruction(node_id)
             _LOGGER.warning(
                 "Node %s does not support StayActiveRequest; the firmware "
-                "transfer may stall. Tap the remote's active-mode button to "
+                "transfer may stall. Tap the device's active-mode button to "
                 "keep it awake (instruction hint: %s)",
                 node_id,
                 instruction,
@@ -586,6 +607,14 @@ def _clean_name(name: Any) -> str | None:
     return cleaned or None
 
 
+def parse_product_filter(value: str | None) -> tuple[str, ...]:
+    """Split a comma/semicolon separated product filter into upper-case tokens."""
+    if not value:
+        return ()
+    tokens = (token.strip().upper() for token in value.replace(";", ",").split(","))
+    return tuple(token for token in tokens if token)
+
+
 def discover_matter_url(hass: HomeAssistant) -> str | None:
     """Return the Matter Server URL from the official Matter config entry."""
     for entry in hass.config_entries.async_entries(MATTER_DOMAIN):
@@ -596,10 +625,10 @@ def discover_matter_url(hass: HomeAssistant) -> str | None:
 
 
 async def async_validate_connection(hass: HomeAssistant, url: str) -> int:
-    """Validate a Matter Server URL. Returns the number of BILRESA nodes."""
-    manager = BilresaManager(hass, url)
+    """Validate a Matter Server URL. Returns the number of matching nodes."""
+    manager = SleepyDeviceManager(hass, url)
     try:
         await manager.async_connect()
-        return len(manager.get_bilresa_node_ids())
+        return len(manager.get_device_node_ids())
     finally:
         await manager.async_disconnect()

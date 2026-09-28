@@ -1,4 +1,4 @@
-"""Diagnostic sensors for the IKEA BILRESA Firmware Updater."""
+"""Diagnostic sensors for the IKEA Sleepy Device Firmware Updater."""
 
 from __future__ import annotations
 
@@ -15,21 +15,21 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import BilresaConfigEntry
+from . import SleepyConfigEntry
 from .const import ICD_OPERATING_MODE_NAMES, OTA_UPDATE_STATE_NAMES
-from .coordinator import BilresaManager
-from .entity import BilresaEntity
+from .coordinator import SleepyDeviceManager
+from .entity import SleepyEntity
 
 
 @dataclass(frozen=True, kw_only=True)
-class BilresaSensorDescription(SensorEntityDescription):
-    """Describes a BILRESA diagnostic sensor."""
+class SleepySensorDescription(SensorEntityDescription):
+    """Describes a sleepy-device diagnostic sensor."""
 
-    value_fn: Callable[[BilresaManager, int], Any]
+    value_fn: Callable[[SleepyDeviceManager, int], Any]
 
 
-SENSORS: tuple[BilresaSensorDescription, ...] = (
-    BilresaSensorDescription(
+SENSORS: tuple[SleepySensorDescription, ...] = (
+    SleepySensorDescription(
         key="ota_state",
         translation_key="ota_state",
         device_class=SensorDeviceClass.ENUM,
@@ -37,7 +37,7 @@ SENSORS: tuple[BilresaSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda manager, node_id: manager.get_update_state_name(node_id),
     ),
-    BilresaSensorDescription(
+    SleepySensorDescription(
         key="icd_mode",
         translation_key="icd_mode",
         device_class=SensorDeviceClass.ENUM,
@@ -45,7 +45,7 @@ SENSORS: tuple[BilresaSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda manager, node_id: manager.get_operating_mode(node_id),
     ),
-    BilresaSensorDescription(
+    SleepySensorDescription(
         key="promised_active",
         translation_key="promised_active",
         device_class=SensorDeviceClass.DURATION,
@@ -59,28 +59,28 @@ SENSORS: tuple[BilresaSensorDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: BilresaConfigEntry,
+    entry: SleepyConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up diagnostic sensors for discovered BILRESA remotes."""
+    """Set up diagnostic sensors for discovered IKEA sleepy devices."""
     manager = entry.runtime_data
     async_add_entities(
-        BilresaSensor(manager, node_id, description)
-        for node_id in manager.get_bilresa_node_ids()
+        SleepySensor(manager, node_id, description)
+        for node_id in manager.get_device_node_ids()
         for description in SENSORS
     )
 
 
-class BilresaSensor(BilresaEntity, SensorEntity):
+class SleepySensor(SleepyEntity, SensorEntity):
     """A diagnostic sensor reflecting OTA / ICD state."""
 
-    entity_description: BilresaSensorDescription
+    entity_description: SleepySensorDescription
 
     def __init__(
         self,
-        manager: BilresaManager,
+        manager: SleepyDeviceManager,
         node_id: int,
-        description: BilresaSensorDescription,
+        description: SleepySensorDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(manager, node_id)

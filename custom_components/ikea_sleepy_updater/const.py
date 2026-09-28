@@ -1,10 +1,10 @@
-"""Constants for the IKEA BILRESA Firmware Updater integration."""
+"""Constants for the IKEA Sleepy Device Firmware Updater integration."""
 
 from __future__ import annotations
 
 from typing import Final
 
-DOMAIN: Final = "bilresa_updater"
+DOMAIN: Final = "ikea_sleepy_updater"
 
 # Domain of the official Home Assistant Matter integration we piggy-back on.
 MATTER_DOMAIN: Final = "matter"
@@ -12,15 +12,24 @@ MATTER_DOMAIN: Final = "matter"
 # Config keys.
 CONF_URL: Final = "url"
 CONF_FALLBACK_INTERVAL: Final = "fallback_interval"
+CONF_VENDOR_SCOPE: Final = "vendor_scope"
+CONF_PRODUCT_FILTER: Final = "product_filter"
+
+# Vendor scope options: only IKEA devices (default) or any Matter vendor.
+VENDOR_SCOPE_IKEA: Final = "ikea"
+VENDOR_SCOPE_ANY: Final = "any"
+DEFAULT_VENDOR_SCOPE: Final = VENDOR_SCOPE_IKEA
+
+# Comma-separated product name substrings. Empty means "every sleepy device
+# from the selected vendor(s)", e.g. BILRESA, MYGGBETT, MYGGSPRAY, TIMMERFLOTTE,
+# KLIPPBOK...
+DEFAULT_PRODUCT_FILTER: Final = ""
 
 # Default Matter Server websocket URL (matches the official add-on default).
 DEFAULT_MATTER_URL: Final = "ws://localhost:5580/ws"
 
 # IKEA of Sweden Matter vendor id (0x117C).
 IKEA_VENDOR_ID: Final = 0x117C
-
-# Substring used to recognise BILRESA remotes by product name.
-PRODUCT_NAME_MATCH: Final = "BILRESA"
 
 # Matter cluster ids.
 BASIC_INFORMATION_CLUSTER_ID: Final = 0x0028
@@ -31,7 +40,7 @@ ICD_MANAGEMENT_CLUSTER_ID: Final = 0x0046
 STAY_ACTIVE_REQUEST_COMMAND_ID: Final = 0x03
 
 # Minimum battery level (percent) required before starting a firmware update.
-# A flash interrupted by a dying battery on a battery-powered remote can brick
+# A flash interrupted by a dying battery on a battery-powered device can brick
 # the device, so refuse to start below this threshold.
 MIN_BATTERY_PERCENT: Final = 20
 
@@ -54,7 +63,7 @@ MIN_FALLBACK_INTERVAL: Final = 4
 MAX_FALLBACK_INTERVAL: Final = 60
 
 # Background task names.
-LISTEN_TASK_NAME: Final = "bilresa_updater_matter_listen"
+LISTEN_TASK_NAME: Final = "ikea_sleepy_updater_matter_listen"
 
 # Human readable names for the OtaSoftwareUpdateRequestor UpdateState enum.
 OTA_UPDATE_STATE_NAMES: Final[dict[int, str]] = {

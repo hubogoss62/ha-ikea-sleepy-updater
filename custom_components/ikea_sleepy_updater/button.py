@@ -1,4 +1,4 @@
-"""Buttons for manual recovery actions on BILRESA remotes."""
+"""Buttons for manual recovery actions on IKEA sleepy devices."""
 
 from __future__ import annotations
 
@@ -10,24 +10,24 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import BilresaConfigEntry
-from .coordinator import BilresaManager
-from .entity import BilresaEntity
+from . import SleepyConfigEntry
+from .coordinator import SleepyDeviceManager
+from .entity import SleepyEntity
 
 
 @dataclass(frozen=True, kw_only=True)
-class BilresaButtonDescription(ButtonEntityDescription):
-    """Describes a BILRESA action button."""
+class SleepyButtonDescription(ButtonEntityDescription):
+    """Describes a sleepy-device action button."""
 
-    press_fn: Callable[[BilresaManager, int], Awaitable[None]]
+    press_fn: Callable[[SleepyDeviceManager, int], Awaitable[None]]
 
 
-async def _keep_awake(manager: BilresaManager, node_id: int) -> None:
+async def _keep_awake(manager: SleepyDeviceManager, node_id: int) -> None:
     await manager.keep_awake_once(node_id)
 
 
-BUTTONS: tuple[BilresaButtonDescription, ...] = (
-    BilresaButtonDescription(
+BUTTONS: tuple[SleepyButtonDescription, ...] = (
+    SleepyButtonDescription(
         key="keep_awake",
         translation_key="keep_awake",
         entity_category=EntityCategory.CONFIG,
@@ -38,28 +38,28 @@ BUTTONS: tuple[BilresaButtonDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: BilresaConfigEntry,
+    entry: SleepyConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up action buttons for discovered BILRESA remotes."""
+    """Set up action buttons for discovered IKEA sleepy devices."""
     manager = entry.runtime_data
     async_add_entities(
-        BilresaButton(manager, node_id, description)
-        for node_id in manager.get_bilresa_node_ids()
+        SleepyButton(manager, node_id, description)
+        for node_id in manager.get_device_node_ids()
         for description in BUTTONS
     )
 
 
-class BilresaButton(BilresaEntity, ButtonEntity):
+class SleepyButton(SleepyEntity, ButtonEntity):
     """A manual recovery button."""
 
-    entity_description: BilresaButtonDescription
+    entity_description: SleepyButtonDescription
 
     def __init__(
         self,
-        manager: BilresaManager,
+        manager: SleepyDeviceManager,
         node_id: int,
-        description: BilresaButtonDescription,
+        description: SleepyButtonDescription,
     ) -> None:
         """Initialize the button."""
         super().__init__(manager, node_id)

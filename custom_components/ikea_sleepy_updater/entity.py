@@ -1,4 +1,4 @@
-"""Shared base entity for the BILRESA updater."""
+"""Shared base entity for the IKEA sleepy device updater."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
-from .coordinator import BilresaManager
+from .coordinator import SleepyDeviceManager
 
 
-class BilresaEntity(Entity):
-    """Base entity tied to a single BILRESA node."""
+class SleepyEntity(Entity):
+    """Base entity tied to a single sleepy Matter node."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, manager: BilresaManager, node_id: int) -> None:
+    def __init__(self, manager: SleepyDeviceManager, node_id: int) -> None:
         """Initialize the entity."""
         self._manager = manager
         self._node_id = node_id
@@ -32,7 +32,7 @@ class BilresaEntity(Entity):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, str(node_id))},
                 manufacturer=manager.get_manufacturer(node_id),
-                model=manager.get_product_name(node_id) or "BILRESA",
+                model=manager.get_product_name(node_id) or "Matter ICD",
                 name=manager.get_node_name(node_id),
                 serial_number=manager.get_serial(node_id),
                 sw_version=manager.get_software_version_string(node_id),

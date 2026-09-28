@@ -1,0 +1,78 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IKEA Sleepy Device Firmware Updater",
+        "description": "Connexion au Matter Server de Home Assistant. L'URL est pré-remplie depuis l'intégration Matter existante. Par défaut, tous les appareils Matter IKEA sur batterie (BILRESA, MYGGBETT, MYGGSPRAY, TIMMERFLOTTE, KLIPPBOK...) sont surveillés ; vous pourrez affiner la sélection dans les options de l'intégration.",
+        "data": {
+          "url": "URL du Matter Server"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter au Matter Server à cette URL.",
+      "unknown": "Erreur inattendue"
+    },
+    "abort": {
+      "already_configured": "IKEA Sleepy Device Firmware Updater est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Appareils et maintien en éveil",
+        "description": "Seuls les appareils Matter compatibles OTA exposant le cluster ICD Management (appareils sur batterie qui se mettent en veille) sont pris en compte. Laissez le filtre produit vide pour tous les surveiller, ou saisissez des fragments de nom séparés par des virgules (par ex. : MYGGBETT, MYGGSPRAY). L'intervalle de renvoi est utilisé quand l'appareil ne communique pas de durée d'activité promise ; une valeur plus basse maintient l'appareil éveillé plus sûrement mais consomme un peu plus de batterie.",
+        "data": {
+          "vendor_scope": "Fabricants",
+          "product_filter": "Filtre sur le nom du produit (optionnel)",
+          "fallback_interval": "Intervalle de maintien en éveil (secondes)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "vendor_scope": {
+      "options": {
+        "ikea": "IKEA uniquement",
+        "any": "Tous fabricants Matter (expérimental)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ota_state": {
+        "name": "État de la mise à jour OTA",
+        "state": {
+          "unknown": "Inconnu",
+          "idle": "Inactif",
+          "querying": "Interrogation",
+          "delayed_on_query": "Interrogation différée",
+          "downloading": "Téléchargement",
+          "applying": "Installation",
+          "rolling_back": "Retour arrière",
+          "delayed_on_apply": "Installation différée"
+        }
+      },
+      "icd_mode": {
+        "name": "Mode de fonctionnement ICD",
+        "state": {
+          "sit": "Short Idle Time",
+          "lit": "Long Idle Time"
+        }
+      },
+      "promised_active": {
+        "name": "Dernière durée d'activité promise"
+      }
+    },
+    "button": {
+      "keep_awake": {
+        "name": "Maintenir éveillé maintenant"
+      }
+    },
+    "binary_sensor": {
+      "keep_awake_active": {
+        "name": "Maintien en éveil actif"
+      }
+    }
+  }
+}

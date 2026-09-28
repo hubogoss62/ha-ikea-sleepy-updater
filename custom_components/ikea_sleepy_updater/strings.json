@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "IKEA BILRESA Firmware Updater",
-        "description": "Connect to your Home Assistant Matter Server. The URL is pre-filled from your existing Matter integration when available.",
+        "title": "IKEA Sleepy Device Firmware Updater",
+        "description": "Connect to your Home Assistant Matter Server. The URL is pre-filled from your existing Matter integration when available. By default every battery-powered IKEA Matter device (BILRESA, MYGGBETT, MYGGSPRAY, TIMMERFLOTTE, KLIPPBOK...) is watched; you can narrow this down later in the integration options.",
         "data": {
           "url": "Matter Server URL"
         }
@@ -14,17 +14,27 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "IKEA BILRESA Firmware Updater is already configured."
+      "already_configured": "IKEA Sleepy Device Firmware Updater is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Keep-awake tuning",
-        "description": "How often (in seconds) to re-send StayActiveRequest while a firmware update is running, when the device does not report a promised active duration. Lower values keep the remote awake more reliably but use slightly more battery.",
+        "title": "Devices and keep-awake tuning",
+        "description": "Only OTA-capable Matter devices exposing the ICD Management cluster (sleepy, battery-powered devices) are considered. Leave the product filter empty to watch all of them, or enter comma-separated product name fragments (for example: MYGGBETT, MYGGSPRAY). The re-send interval is used when the device does not report a promised active duration; lower values keep the device awake more reliably but use slightly more battery.",
         "data": {
+          "vendor_scope": "Vendors",
+          "product_filter": "Product name filter (optional)",
           "fallback_interval": "Keep-awake re-send interval (seconds)"
         }
+      }
+    }
+  },
+  "selector": {
+    "vendor_scope": {
+      "options": {
+        "ikea": "IKEA only",
+        "any": "Any Matter vendor (experimental)"
       }
     }
   },
