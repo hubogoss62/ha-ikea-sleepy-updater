@@ -6,11 +6,11 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS Custom repository"></a>
-  <a href="https://github.com/GITHUB_USER/ha-ikea-sleepy-updater/actions/workflows/validate.yml"><img src="https://github.com/GITHUB_USER/ha-ikea-sleepy-updater/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
+  <a href="https://github.com/hubogoss62/ha-ikea-sleepy-updater/actions/workflows/validate.yml"><img src="https://github.com/hubogoss62/ha-ikea-sleepy-updater/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
 </p>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=GITHUB_USER&repository=ha-ikea-sleepy-updater&category=integration">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=hubogoss62&repository=ha-ikea-sleepy-updater&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.">
   </a>
   <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=ikea_sleepy_updater">
@@ -92,7 +92,7 @@ interval when the device does not report one).
 
 1. **Remove the original *IKEA BILRESA Firmware Updater* if you use it**: both
    would otherwise send keep-awake requests to your BILRESA at the same time.
-2. In HACS, add `https://github.com/GITHUB_USER/ha-ikea-sleepy-updater` as a
+2. In HACS, add `https://github.com/hubogoss62/ha-ikea-sleepy-updater` as a
    **custom repository** (category: *Integration*).
 3. Install **IKEA Sleepy Device Firmware Updater** and restart Home Assistant.
 4. **Settings → Devices & Services → Add Integration →** *IKEA Sleepy Device
