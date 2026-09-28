@@ -6,7 +6,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
-from .const import DOMAIN
+from .const import DEVICE_NAME_SUFFIX, DOMAIN
 from .coordinator import SleepyDeviceManager
 
 
@@ -21,19 +21,20 @@ class SleepyEntity(Entity):
         self._manager = manager
         self._node_id = node_id
 
-        matter_identifier = manager.get_matter_device_identifier(node_id)
-        if matter_identifier is not None:
+        identifier = manager.get_device_identifier(node_id)
+        if identifier[0] != DOMAIN:
             # Attach to the existing Matter device so the name, firmware version
             # and area are inherited from the device the user already sees.
-            self._attr_device_info = DeviceInfo(identifiers={matter_identifier})
+            self._attr_device_info = DeviceInfo(identifiers={identifier})
         else:
             # Fallback: stand up our own device entry with the best metadata we
-            # can read directly from the node.
+            # can read directly from the node. The suffix keeps it clearly
+            # distinguishable from the Matter device of the same name.
             self._attr_device_info = DeviceInfo(
-                identifiers={(DOMAIN, str(node_id))},
+                identifiers={identifier},
                 manufacturer=manager.get_manufacturer(node_id),
                 model=manager.get_product_name(node_id) or "Matter ICD",
-                name=manager.get_node_name(node_id),
+                name=f"{manager.get_node_name(node_id)} {DEVICE_NAME_SUFFIX}",
                 serial_number=manager.get_serial(node_id),
                 sw_version=manager.get_software_version_string(node_id),
             )

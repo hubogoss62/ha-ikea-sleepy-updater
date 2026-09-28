@@ -72,6 +72,9 @@
     "binary_sensor": {
       "keep_awake_active": {
         "name": "Keep-awake active"
+      },
+      "keep_awake_supported": {
+        "name": "Keep-awake supported"
       }
     }
   }

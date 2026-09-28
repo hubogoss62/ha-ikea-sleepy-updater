@@ -16,7 +16,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers import aiohttp_client, device_registry as dr
 
 from matter_server.client import MatterClient
 from matter_server.common.errors import (
@@ -33,16 +33,20 @@ from .const import (
     DEFAULT_KEEP_AWAKE_FALLBACK_INTERVAL,
     DEFAULT_PRODUCT_FILTER,
     DEFAULT_VENDOR_SCOPE,
+    DOMAIN,
     ICD_OPERATING_MODE_NAMES,
     IDLE_OTA_STATES,
     IKEA_VENDOR_ID,
     KEEP_AWAKE_DURATION_MS,
+    KEEP_AWAKE_MAX_DURATION,
+    KEEP_AWAKE_MAX_QUERY_DURATION,
     KEEP_AWAKE_MIN_INTERVAL,
     KEEP_AWAKE_REARM_RATIO,
     LISTEN_TASK_NAME,
     MATTER_DOMAIN,
     MIN_BATTERY_PERCENT,
     OTA_UPDATE_STATE_NAMES,
+    QUERY_OTA_STATES,
     STAY_ACTIVE_REQUEST_COMMAND_ID,
     VENDOR_SCOPE_ANY,
 )
@@ -87,6 +91,10 @@ class SleepyDeviceManager:
         # Active keep-awake loops, keyed by node id.
         self._keepalive_tasks: dict[int, asyncio.Task[None]] = {}
         self._keepalive_stops: dict[int, asyncio.Event] = {}
+        # OTA state in which the keep-awake loop last gave up, keyed by node id.
+        self._gave_up: dict[int, str] = {}
+        # Device registry identifier each node's entities attach to.
+        self._device_identifiers: dict[int, tuple[str, str]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -369,6 +377,58 @@ class SleepyDeviceManager:
             return None
         return (MATTER_DOMAIN, f"deviceid_{device_id}")
 
+    def get_device_identifier(self, node_id: int) -> tuple[str, str]:
+        """Return the device registry identifier our entities should attach to.
+
+        Only returns a Matter identifier when a device carrying it actually
+        exists in the registry. Linking to an identifier nobody owns would make
+        Home Assistant create a nameless device, which the UI then labels with
+        this integration's title.
+
+        Candidates, in order: the computed Matter device id, the Matter serial
+        identifier, then any Matter identifier ending with this node's id (in
+        case the fabric part differs). Falls back to our own identifier.
+        """
+        if (cached := self._device_identifiers.get(node_id)) is not None:
+            return cached
+        identifier = self._resolve_device_identifier(node_id)
+        self._device_identifiers[node_id] = identifier
+        return identifier
+
+    def _resolve_device_identifier(self, node_id: int) -> tuple[str, str]:
+        registry = dr.async_get(self.hass)
+        # Only devices owned by the Matter integration count: a nameless device
+        # created by an earlier version of this integration may also carry the
+        # computed identifier.
+        matter_entry_ids = {
+            entry.entry_id
+            for entry in self.hass.config_entries.async_entries(MATTER_DOMAIN)
+        }
+        candidates: list[tuple[str, str]] = []
+        if (computed := self.get_matter_device_identifier(node_id)) is not None:
+            candidates.append(computed)
+        if (serial := self.get_serial(node_id)) is not None:
+            candidates.append((MATTER_DOMAIN, f"serial_{serial}"))
+        for identifier in candidates:
+            device = registry.async_get_device(identifiers={identifier})
+            if device is not None and device.config_entries & matter_entry_ids:
+                return identifier
+
+        node_suffix = f"-{node_id:016X}-MatterNodeDevice"
+        for entry_id in matter_entry_ids:
+            for device in dr.async_entries_for_config_entry(registry, entry_id):
+                for domain, value in device.identifiers:
+                    if domain == MATTER_DOMAIN and value.endswith(node_suffix):
+                        return (domain, value)
+
+        _LOGGER.warning(
+            "Matter device for node %s not found in the device registry "
+            "(tried %s); creating a separate device",
+            node_id,
+            candidates,
+        )
+        return (DOMAIN, str(node_id))
+
     def get_battery_percent(self, node_id: int) -> int | None:
         """Return the battery level (0-100) or None if unknown.
 
@@ -450,7 +510,15 @@ class SleepyDeviceManager:
         """Start or stop the keep-awake loop based on the device's OTA state."""
         state = self.get_update_state_name(node_id)
         in_progress = state is not None and state not in IDLE_OTA_STATES
+        if not in_progress:
+            self._gave_up.pop(node_id, None)
+        elif self._gave_up.get(node_id) == state:
+            # The loop already gave up in this very state (unsupported device,
+            # stuck query or time cap). Wait for the state to change instead of
+            # restarting on every attribute report the device sends.
+            return
         if in_progress and node_id not in self._keepalive_tasks:
+            self._gave_up.pop(node_id, None)
             self._start_keepawake(node_id, state)
         elif not in_progress and node_id in self._keepalive_tasks:
             self._stop_keepawake(node_id)
@@ -505,7 +573,7 @@ class SleepyDeviceManager:
     # ------------------------------------------------------------------
     # Keep-awake (ICD StayActiveRequest)
     # ------------------------------------------------------------------
-    async def supports_stay_active(self, node_id: int) -> bool:
+    def supports_stay_active(self, node_id: int) -> bool:
         """Feature-detect StayActiveRequest via the ICD AcceptedCommandList."""
         node = self._safe_node(node_id)
         if node is None:
@@ -557,9 +625,14 @@ class SleepyDeviceManager:
         self._notify(node_id)
         return promised
 
+    def _give_up(self, node_id: int) -> None:
+        """Remember the OTA state in which the keep-awake loop stopped by itself."""
+        if (state := self.get_update_state_name(node_id)) is not None:
+            self._gave_up[node_id] = state
+
     async def _keep_awake_loop(self, node_id: int, stop_event: asyncio.Event) -> None:
         """Hold the device in active mode until ``stop_event`` is set."""
-        if not await self.supports_stay_active(node_id):
+        if not self.supports_stay_active(node_id):
             instruction = self.get_user_active_mode_instruction(node_id)
             _LOGGER.warning(
                 "Node %s does not support StayActiveRequest; the firmware "
@@ -568,9 +641,39 @@ class SleepyDeviceManager:
                 node_id,
                 instruction,
             )
+            self._give_up(node_id)
             return
 
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        query_since: float | None = None
         while not stop_event.is_set():
+            now = loop.time()
+            state = self.get_update_state_name(node_id)
+            if state in QUERY_OTA_STATES:
+                query_since = query_since if query_since is not None else now
+                if now - query_since > KEEP_AWAKE_MAX_QUERY_DURATION:
+                    _LOGGER.warning(
+                        "Node %s stayed in OTA state '%s' for over %s min without "
+                        "downloading; stopping keep-awake to save its battery",
+                        node_id,
+                        state,
+                        KEEP_AWAKE_MAX_QUERY_DURATION // 60,
+                    )
+                    self._give_up(node_id)
+                    return
+            else:
+                query_since = None
+            if now - started > KEEP_AWAKE_MAX_DURATION:
+                _LOGGER.warning(
+                    "Keep-awake for node %s exceeded %s h (state '%s'); stopping",
+                    node_id,
+                    KEEP_AWAKE_MAX_DURATION // 3600,
+                    state,
+                )
+                self._give_up(node_id)
+                return
+
             try:
                 promised = await self.keep_awake_once(node_id)
             except asyncio.CancelledError:

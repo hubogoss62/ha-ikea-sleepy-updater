@@ -6,8 +6,9 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     CONF_FALLBACK_INTERVAL,
@@ -57,7 +58,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SleepyConfigEntry) -> bo
             "Watching %d sleepy Matter device(s) for firmware updates: %s",
             len(node_ids),
             ", ".join(
-                f"{manager.get_node_name(n)} (node {n})" for n in node_ids
+                f"{manager.get_node_name(n)} (node {n}, ICD mode "
+                f"{manager.get_operating_mode(n)}, OTA state "
+                f"{manager.get_update_state_name(n)}, StayActiveRequest "
+                f"{'supported' if manager.supports_stay_active(n) else 'NOT supported'})"
+                for n in node_ids
             ),
         )
     else:
@@ -69,7 +74,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: SleepyConfigEntry) -> bo
     entry.runtime_data = manager
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_stale_devices(
+        hass, entry, {manager.get_device_identifier(n) for n in node_ids}
+    )
     return True
+
+
+@callback
+def _async_remove_stale_devices(
+    hass: HomeAssistant,
+    entry: SleepyConfigEntry,
+    current_identifiers: set[tuple[str, str]],
+) -> None:
+    """Detach this entry from devices it no longer provides entities for.
+
+    Covers devices excluded by a new filter and the nameless duplicate devices
+    earlier versions could create when linking to the Matter device failed.
+    Detaching removes our entities from that device; a device left without any
+    config entry is deleted by Home Assistant, the Matter device itself is kept.
+    """
+    registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        if device.identifiers & current_identifiers:
+            continue
+        _LOGGER.debug("Removing stale device %s (%s)", device.name, device.identifiers)
+        registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: SleepyConfigEntry) -> None:

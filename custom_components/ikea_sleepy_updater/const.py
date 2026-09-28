@@ -62,6 +62,20 @@ DEFAULT_KEEP_AWAKE_FALLBACK_INTERVAL: Final = 15
 MIN_FALLBACK_INTERVAL: Final = 4
 MAX_FALLBACK_INTERVAL: Final = 60
 
+# Safety limits for the automatic keep-awake loop (seconds). A device that
+# stays in "querying"/"delayed_on_query" without ever downloading (e.g. the
+# provider has nothing to offer) must not be kept awake forever: that drains
+# the battery and floods the Thread network for nothing.
+KEEP_AWAKE_MAX_QUERY_DURATION: Final = 15 * 60
+# Hard cap for a whole update; large images over Thread can take >1h.
+KEEP_AWAKE_MAX_DURATION: Final = 4 * 3600
+# OTA states that only mean "asking the provider", not "transferring".
+QUERY_OTA_STATES: Final[frozenset[str]] = frozenset({"querying", "delayed_on_query"})
+
+# Suffix of the fallback device name, used only when the matching Matter
+# device cannot be found in the device registry.
+DEVICE_NAME_SUFFIX: Final = "Sleepy device FW updater"
+
 # Background task names.
 LISTEN_TASK_NAME: Final = "ikea_sleepy_updater_matter_listen"
 

@@ -44,6 +44,10 @@ A Matter node is picked up when **all** of these are true:
 | Exposes the **ICD Management** cluster (`0x0046`) on endpoint 0 | It is a sleepy *Intermittently Connected Device* |
 | Product name contains one of the configured filters (optional) | Restrict to e.g. `MYGGBETT, MYGGSPRAY` |
 
+The entities are added to the existing Matter device (same name, same page).
+If that device cannot be found, a separate device named
+`<device name> Sleepy device FW updater` is created instead.
+
 Mains-powered devices (bulbs, plugs, the Dirigera bridge...) do not implement
 ICD Management and are therefore never touched.
 
@@ -120,6 +124,8 @@ Update firmware with the **Firmware** update entity of the official Matter
 integration. On each matching device this integration adds:
 
 - **Keep-awake active** binary sensor: on while the device is held awake
+- **Keep-awake supported** binary sensor: off means the device does not accept
+  `StayActiveRequest`, so this integration cannot help it (press its button)
 - Diagnostic sensors: OTA update state, ICD operating mode (SIT/LIT), last
   promised active duration (disabled by default)
 - **Keep awake now** button: sends a single `StayActiveRequest`
@@ -136,8 +142,10 @@ otherwise restart the download from 0 %.
 - Only one firmware update runs at a time (Matter Server limitation).
 - A Thread dropout mid-transfer can still abort a download; keep-awake greatly
   reduces but cannot eliminate this.
-- Entities of devices removed or excluded by a new filter stay in the entity
-  registry until you delete them.
+- Keep-awake stops by itself if the device stays in `querying` /
+  `delayed_on_query` for more than 15 minutes without downloading, or after
+  4 hours in total, to protect the battery. It restarts when the OTA state
+  changes.
 
 ## Credits & license
 
